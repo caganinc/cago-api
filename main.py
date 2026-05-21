@@ -6,6 +6,7 @@ Bridge'den gelen slice verilerini alır, kalibrasyon katsayılarını günceller
 
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, Union
 import sqlite3, json, math, os
@@ -384,3 +385,14 @@ def list_slice_events(limit: int = 50, conn=Depends(get_db), _=Depends(verify_ke
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "1.0.0"}
+
+
+# ─── Admin paneli ─────────────────────────────────────────────────────────────
+
+@app.get("/admin")
+def admin_panel():
+    """Kalibrasyon yönetim paneli (şifresiz — gerekirse API key ile koru)."""
+    html_path = Path(__file__).parent / "admin.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="admin.html bulunamadı")
+    return FileResponse(str(html_path), media_type="text/html")

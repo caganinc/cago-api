@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CAGO 3D — Kalibrasyon Paneli</title>
+  <style>
+    :root {
+      --bg: #111111;
+      --bg2: #1a1a1a;
+      --card: #222222;
+      --border: #333;
+      --orange: #FF5B1F;
+      --white: #f0f0f0;
+      --muted: #888;
+      --green: #22c55e;
+      --red: #ef4444;
+      --blue: #3b82f6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--white);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+    header {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-badge {
+      width: 36px; height: 36px;
+      background: #1E1E1E;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 13px;
+      border: 1px solid var(--border);
+    }
+    .logo-badge span:first-child { color: var(--orange); }
+    .logo-badge span:last-child { color: var(--white); }
+    h1 { font-size: 18px; font-weight: 700; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green);
+      display: inline-block;
+      margin-right: 6px;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 32px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+    @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .card h2 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 16px;
+    }
+    .stat { font-size: 32px; font-weight: 700; color: var(--orange); }
+    .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left; padding: 10px 12px;
+      font-size: 11px; font-weight: 600;
+      color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 10px 12px; border-bottom: 1px solid #2a2a2a; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+    .badge {
+      display: inline-block; padding: 2px 8px;
+      border-radius: 4px; font-size: 11px; font-weight: 600;
+    }
+    .badge-green { background: rgba(34,197,94,.15); color: var(--green); }
+    .badge-orange { background: rgba(255,91,31,.15); color: var(--orange); }
+    .badge-blue { background: rgba(59,130,246,.15); color: var(--blue); }
+    .k-val { font-family: 'Courier New', monospace; font-size: 13px; }
+    .k-good { color: var(--green); }
+    .k-warn { color: #f59e0b; }
+    .k-bad  { color: var(--red); }
+    .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+    label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+    input, select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--white);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      width: 100%;
+    }
+    input:focus, select:focus {
+      outline: none; border-color: var(--orange);
+    }
+    button {
+      background: var(--orange);
+      color: white;
+      border: none;
+      padding: 9px 20px;
+      border-radius: 8px;
+      font-size: 13px; font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+      white-space: nowrap;
+    }
+    button:hover { opacity: .85; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    button.secondary {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .result-box {
+      margin-top: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 12px;
+      color: var(--green);
+      display: none;
+    }
+    .result-box.error { color: var(--red); }
+    .result-box.show { display: block; }
+    .full { grid-column: 1 / -1; }
+    .refresh-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 6px 12px;
+      font-size: 11px;
+    }
+    .empty { color: var(--muted); font-style: italic; text-align: center; padding: 24px; }
+    .ts { color: var(--muted); font-size: 12px; }
+    .url-tag {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-family: monospace;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 16px;
+    }
+    .url-tag span { color: var(--orange); }
+    .copy-btn {
+      background: transparent; border: none;
+      color: var(--muted); cursor: pointer; font-size: 11px; padding: 0;
+    }
+    .copy-btn:hover { color: var(--white); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-badge"><span>C</span><span>G</span></div>
+    <div>
+      <h1>CAGO 3D — Kalibrasyon Paneli</h1>
+      <div style="font-size:12px;color:var(--muted)"><span class="status-dot"></span>Railway API Canlı</div>
+    </div>
+  </div>
+  <button class="refresh-btn" onclick="loadAll()">↻ Yenile</button>
+</header>
+
+<div class="container">
+
+  <!-- API URL -->
+  <div class="url-tag">
+    <span>API:</span> <span id="api-url"></span>
+    <button class="copy-btn" onclick="copyUrl()">📋 kopyala</button>
+  </div>
+
+  <!-- Stats row -->
+  <div class="grid">
+    <div class="card">
+      <h2>Toplam Profil</h2>
+      <div class="stat" id="stat-profiles">—</div>
+      <div class="stat-label">kalibre edilmiş filament profili</div>
+    </div>
+    <div class="card">
+      <h2>Toplam Bridge Olayı</h2>
+      <div class="stat" id="stat-events">—</div>
+      <div class="stat-label">alınan slice verisi</div>
+    </div>
+  </div>
+
+  <!-- Calibration table -->
+  <div class="card" style="margin-bottom:24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h2 style="margin:0">Kalibrasyon Katsayıları</h2>
+      <span style="font-size:11px;color:var(--muted)">EMA α=0.3 · k=1.0 mükemmel</span>
+    </div>
+    <div id="calib-table"><div class="empty">Henüz veri yok — Bridge'den slice gönder</div></div>
+  </div>
+
+  <!-- Calibrate form + Recent events side by side -->
+  <div class="grid">
+
+    <!-- Calibrate form -->
+    <div class="card">
+      <h2>Manuel Kalibrasyon</h2>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:16px">
+        Aynı modeli sitede ve Bambu'da slice et — farkı sisteme bildir.
+      </p>
+      <div class="form-group" style="margin-bottom:10px">
+        <label>Profil Anahtarı</label>
+        <select id="cal-profile">
+          <option value="">— profil seç veya yaz —</option>
+        </select>
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <div class="form-group">
+          <label>Sitenin Tahmini Ağırlık (g)</label>
+          <input type="number" id="cal-weight" step="0.1" placeholder="örn: 24.5">
+        </div>
+        <div class="form-group">
+          <label>Sitenin Tahmini Süre (dk)</label>
+          <input type="number" id="cal-time" step="0.1" placeholder="örn: 45.0">
+        </div>
+      </div>
+      <button onclick="submitCalibration()">Karşılaştır & Güncelle</button>
+      <div id="cal-result" class="result-box"></div>
+    </div>
+
+    <!-- Recent events -->
+    <div class="card">
+      <h2>Son Bridge Olayları</h2>
+      <div id="events-table"><div class="empty">Bekliyor…</div></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+
+document.getElementById('api-url').textContent = API;
+
+function copyUrl() {
+  navigator.clipboard.writeText(API);
+}
+
+async function apiFetch(path, opts={}) {
+  const r = await fetch(API + path, {
+    headers: {'Content-Type':'application/json'},
+    ...opts
+  });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+async function loadCalibrations() {
+  const { calibrations } = await apiFetch('/v1/calibrations');
+  document.getElementById('stat-profiles').textContent = calibrations.length;
+
+  // Populate profile selector
+  const sel = document.getElementById('cal-profile');
+  const existing = new Set(Array.from(sel.options).map(o => o.value));
+  calibrations.forEach(c => {
+    if (!existing.has(c.profile_key)) {
+      const o = document.createElement('option');
+      o.value = o.textContent = c.profile_key;
+      sel.appendChild(o);
+    }
+  });
+
+  if (calibrations.length === 0) {
+    document.getElementById('calib-table').innerHTML = '<div class="empty">Henüz kalibrasyon verisi yok</div>';
+    return;
+  }
+
+  const rows = calibrations.map(c => {
+    const kw = c.k_weight.toFixed(4);
+    const kt = c.k_time.toFixed(4);
+    const kwClass = Math.abs(c.k_weight-1) < .05 ? 'k-good' : Math.abs(c.k_weight-1) < .15 ? 'k-warn' : 'k-bad';
+    const ktClass = Math.abs(c.k_time-1) < .05 ? 'k-good' : Math.abs(c.k_time-1) < .15 ? 'k-warn' : 'k-bad';
+    const updated = new Date(c.last_updated).toLocaleString('tr-TR');
+    return `<tr>
+      <td><span class="badge badge-orange">${c.profile_key}</span></td>
+      <td><span class="k-val ${kwClass}">${kw}</span></td>
+      <td><span class="k-val ${ktClass}">${kt}</span></td>
+      <td><span class="badge badge-blue">${c.sample_count}</span></td>
+      <td class="ts">${updated}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('calib-table').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Profil</th><th>k_weight</th><th>k_time</th><th>Örnek</th><th>Son güncelleme</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function loadEvents() {
+  const { events } = await apiFetch('/v1/slice-events?limit=10');
+  document.getElementById('stat-events').textContent = events.length >= 10 ? '10+' : events.length;
+
+  if (events.length === 0) {
+    document.getElementById('events-table').innerHTML = '<div class="empty">Bridge henüz veri göndermedi</div>';
+    return;
+  }
+
+  const rows = events.map(e => {
+    const ts = new Date(e.received_at).toLocaleString('tr-TR');
+    return `<tr>
+      <td class="ts">${ts}</td>
+      <td><span class="badge badge-green">${e.filament_type || '?'}</span></td>
+      <td>${(e.weight_g||0).toFixed(1)}g</td>
+      <td>${(e.time_min||0).toFixed(0)}dk</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('events-table').innerHTML = `
+    <table>
+      <thead><tr><th>Zaman</th><th>Filament</th><th>Ağırlık</th><th>Süre</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function submitCalibration() {
+  const profile = document.getElementById('cal-profile').value.trim();
+  const weight  = parseFloat(document.getElementById('cal-weight').value);
+  const time    = parseFloat(document.getElementById('cal-time').value);
+  const box     = document.getElementById('cal-result');
+
+  if (!profile || !weight || !time) {
+    box.className = 'result-box error show';
+    box.textContent = '❌ Profil, ağırlık ve süre zorunlu.';
+    return;
+  }
+
+  const btn = document.querySelector('button[onclick="submitCalibration()"]');
+  btn.disabled = true; btn.textContent = 'Gönderiliyor…';
+
+  try {
+    const res = await apiFetch('/v1/calibrate', {
+      method: 'POST',
+      body: JSON.stringify({
+        profile_key: profile,
+        site_weight_g: weight,
+        site_time_min: time
+      })
+    });
+    box.className = 'result-box show';
+    box.textContent = `✅ Güncellendi!
+Profil  : ${res.profile_key}
+k_weight: ${res.new_k_weight}  (Bambu ${res.bambu_weight_g}g / Site ${res.site_weight_g}g = ${res.weight_ratio})
+k_time  : ${res.new_k_time}  (Bambu ${res.bambu_time_min}dk / Site ${res.site_time_min}dk = ${res.time_ratio})
+Örnek   : ${res.sample_count}`;
+    loadCalibrations();
+  } catch(e) {
+    box.className = 'result-box error show';
+    box.textContent = '❌ Hata: ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Karşılaştır & Güncelle';
+  }
+}
+
+async function loadAll() {
+  try { await loadCalibrations(); } catch(e) { console.warn(e); }
+  try { await loadEvents(); } catch(e) { console.warn(e); }
+}
+
+loadAll();
+setInterval(loadAll, 30000); // her 30 saniyede otomatik yenile
+</script>
+</body>
+</html>
