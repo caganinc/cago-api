@@ -6,7 +6,7 @@
  *   import { getCalibration, submitSiteEstimate, getRecentBridgeEvents } from './calibration.js'
  */
 
-const API_BASE = "http://localhost:8080";   // Üretimde gerçek domain ile değiştir
+const API_BASE = "https://cago-api-production.up.railway.app";
 const API_KEY  = "";                         // Boş bırakılırsa doğrulama yapılmaz
 
 const headers = () => ({
