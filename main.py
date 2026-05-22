@@ -4,7 +4,7 @@ Bridge'den gelen slice verilerini alır, kalibrasyon katsayılarını günceller
 Çalıştır: uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -20,8 +20,16 @@ _default_db = "/data/api.db" if Path("/data").exists() else "/tmp/cago_api.db"
 DB_PATH = Path(os.getenv("CAGO_DB", _default_db))
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+# 3D model dosyaları (köprünün gönderdiği STL'ler) burada saklanır
+MODELS_DIR = DB_PATH.parent / "models"
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+MAX_MODEL_BYTES = 60 * 1024 * 1024   # 60 MB üst sınır
+
 def get_db():
-    conn = sqlite3.connect(str(DB_PATH))
+    # check_same_thread=False: FastAPI sync generator dependency'lerinde bağlantı
+    # bir thread'de açılıp başka thread'de kapatılabiliyor; bu güvenli çünkü her
+    # istek kendi bağlantısını alır (paylaşım yok).
+    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -115,10 +123,18 @@ class CalibrateRequest(BaseModel):
     """
     Site kendi tahminini göndererek karşılaştırma yapabilir.
     Bridge verisiyle eşleşince k_weight / k_time hesaplanır.
+
+    Eşleştirme önceliği:
+      1. bambu_weight_g / bambu_time_min doğrudan verilirse → onlar kullanılır
+      2. slice_event_id verilirse → o olayın Bambu değerleri kullanılır
+      3. hiçbiri yoksa → en son bambu olayı (geriye dönük uyumluluk)
     """
-    profile_key:    str           # örn: "PLA_0.20_15pct"
+    profile_key:    str           # örn: "PLA_0.2_15pct"
     site_weight_g:  float         # sitenin tahmini gram
     site_time_min:  float         # sitenin tahmini dakika
+    bambu_weight_g: Optional[float] = None   # seçilen olayın Bambu gramı
+    bambu_time_min: Optional[float] = None   # seçilen olayın Bambu süresi (dk)
+    slice_event_id: Optional[int]   = None   # hangi olayla eşleştirileceği
 
 # ─── Kalibrasyon mantığı ─────────────────────────────────────────────────────
 
@@ -291,30 +307,37 @@ def calibrate(
     - Aynı modeli Bambu'da slice etti → bridge zaten gönderdi (profile_key ile son kayıt bulunur)
     - Bu iki veri karşılaştırılır, k güncellenir
     """
-    # Bu profile için en son bridge verisini bul
-    row = conn.execute("""
-        SELECT se.id, se.weight_g, se.time_min
-        FROM slice_events se
-        WHERE se.raw_json LIKE ?
-        ORDER BY se.id DESC LIMIT 1
-    """, (f'%"source": "bambu%',)).fetchone()
+    # Bambu değerlerini belirle — öncelik sırasına göre
+    event_id = req.slice_event_id
+    if req.bambu_weight_g is not None and req.bambu_time_min is not None:
+        # 1) Site doğrudan seçilen olayın Bambu değerlerini gönderdi (en doğru)
+        bambu_w = req.bambu_weight_g
+        bambu_t = req.bambu_time_min
+    elif req.slice_event_id is not None:
+        # 2) Belirli bir olay id'si verildi
+        ev = conn.execute(
+            "SELECT id, weight_g, time_min FROM slice_events WHERE id=?",
+            (req.slice_event_id,)
+        ).fetchone()
+        if not ev:
+            raise HTTPException(status_code=404, detail="Slice olayı bulunamadı")
+        bambu_w = ev["weight_g"]
+        bambu_t = ev["time_min"]
+    else:
+        # 3) Geriye dönük uyumluluk: en son bambu olayı
+        last_bambu = conn.execute("""
+            SELECT id, weight_g, time_min FROM slice_events
+            WHERE source LIKE 'bambu%'
+            ORDER BY id DESC LIMIT 1
+        """).fetchone()
+        if not last_bambu:
+            raise HTTPException(status_code=404, detail="Henüz bridge'den veri gelmedi")
+        event_id = last_bambu["id"]
+        bambu_w = last_bambu["weight_g"]
+        bambu_t = last_bambu["time_min"]
 
-    # Profil anahtarına göre daha spesifik ara (filament tipi + katman yüksekliği)
-    # Basit yaklaşım: son bridge olayını kullan
-    last_bambu = conn.execute("""
-        SELECT id, weight_g, time_min FROM slice_events
-        WHERE source LIKE 'bambu%'
-        ORDER BY id DESC LIMIT 1
-    """).fetchone()
-
-    if not last_bambu:
-        raise HTTPException(status_code=404, detail="Henüz bridge'den veri gelmedi")
-
-    bambu_w = last_bambu["weight_g"]
-    bambu_t = last_bambu["time_min"]
-
-    w_ratio = (bambu_w / req.site_weight_g) if req.site_weight_g > 0 else None
-    t_ratio = (bambu_t / req.site_time_min)  if req.site_time_min  > 0 else None
+    w_ratio = (bambu_w / req.site_weight_g) if (bambu_w and req.site_weight_g > 0) else None
+    t_ratio = (bambu_t / req.site_time_min)  if (bambu_t and req.site_time_min  > 0) else None
 
     now = datetime.now(timezone.utc).isoformat()
     conn.execute("""
@@ -322,7 +345,7 @@ def calibrate(
         (profile_key, slice_event_id, bambu_weight_g, bambu_time_min,
          site_weight_g, site_time_min, weight_ratio, time_ratio, created_at)
         VALUES (?,?,?,?,?,?,?,?,?)
-    """, (req.profile_key, last_bambu["id"],
+    """, (req.profile_key, event_id,
           bambu_w, bambu_t,
           req.site_weight_g, req.site_time_min,
           w_ratio, t_ratio, now))
@@ -377,7 +400,85 @@ def list_slice_events(limit: int = 50, conn=Depends(get_db), _=Depends(verify_ke
                weight_g, time_min, layer_height, infill_pct, filament_type
         FROM slice_events ORDER BY id DESC LIMIT ?
     """, (limit,)).fetchall()
-    return {"events": [dict(r) for r in rows]}
+    events = []
+    for r in rows:
+        d = dict(r)
+        d["has_model"] = (MODELS_DIR / f"{d['id']}.stl").exists()
+        events.append(d)
+    return {"events": events}
+
+
+# ─── Endpoint: tek bir slice olayının tüm detayı (geometri dahil) ────────────
+
+@app.get("/v1/slice-events/{event_id}")
+def get_slice_event(event_id: int, conn=Depends(get_db), _=Depends(verify_key)):
+    """
+    Site bu endpoint'ten olayın tüm detayını okur — özellikle geometriyi
+    (model_bbox_mm, model_volume_cm3, triangle_count) site slicer'ı için.
+    """
+    row = conn.execute(
+        "SELECT * FROM slice_events WHERE id=?", (event_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Slice olayı bulunamadı")
+
+    d = dict(row)
+    # raw_json içinden tam slice paketini (geometri vb.) aç
+    try:
+        d["raw"] = json.loads(d.get("raw_json") or "{}")
+    except (ValueError, TypeError):
+        d["raw"] = {}
+    d.pop("raw_json", None)
+    try:
+        d["files"] = json.loads(d.get("files") or "[]")
+    except (ValueError, TypeError):
+        pass
+    d["has_model"] = (MODELS_DIR / f"{event_id}.stl").exists()
+    d["profile_key"] = _profile_key(SliceModel(**d["raw"].get("slice", {}))) if d["raw"].get("slice") else None
+    return d
+
+
+# ─── Endpoint: bir slice olayına 3D model (STL) yükle ────────────────────────
+
+@app.post("/v1/slice-events/{event_id}/model")
+def upload_model(
+    event_id: int,
+    file: UploadFile = File(...),
+    conn=Depends(get_db),
+    _=Depends(verify_key),
+):
+    """
+    Köprü, slice event'i POST ettikten sonra dönen id ile 3D modeli (binary STL)
+    buraya yükler. Site bu STL'i indirip kendi slicer'ından geçirir.
+    """
+    row = conn.execute("SELECT id FROM slice_events WHERE id=?", (event_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Slice olayı bulunamadı")
+
+    data = file.file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Boş dosya")
+    if len(data) > MAX_MODEL_BYTES:
+        raise HTTPException(status_code=413, detail="Dosya çok büyük (maks 60 MB)")
+
+    dest = MODELS_DIR / f"{event_id}.stl"
+    dest.write_bytes(data)
+    return {"event_id": event_id, "bytes": len(data), "stored": True}
+
+
+# ─── Endpoint: bir slice olayının 3D modelini indir ──────────────────────────
+
+@app.get("/v1/slice-events/{event_id}/model")
+def download_model(event_id: int, _=Depends(verify_key)):
+    """Site bu endpoint'ten STL'i indirir → parseSTL → predict."""
+    path = MODELS_DIR / f"{event_id}.stl"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Bu olay için model dosyası yok")
+    return FileResponse(
+        str(path),
+        media_type="model/stl",
+        filename=f"slice_{event_id}.stl",
+    )
 
 
 # ─── Sağlık kontrolü ─────────────────────────────────────────────────────────
