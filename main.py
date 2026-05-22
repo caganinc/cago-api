@@ -101,7 +101,7 @@ class SliceModel(BaseModel):
     top_bottom_layers:       Optional[int]   = None
     supports:                Optional[dict]  = None
     brim_width_mm:           Optional[float] = None
-    filament:                Optional[Union[FilamentModel, list]] = None
+    filament:                Optional[Union[FilamentModel, list[FilamentModel]]] = None
     model_bbox_mm:           Optional[dict]  = None
     model_volume_cm3:        Optional[float] = None
     triangle_count:          Optional[int]   = None
@@ -138,12 +138,26 @@ class CalibrateRequest(BaseModel):
 
 # ─── Kalibrasyon mantığı ─────────────────────────────────────────────────────
 
+def _fil_get(fil, name):
+    """Filament alanını oku — FilamentModel, dict ya da None fark etmez."""
+    if fil is None:
+        return None
+    if isinstance(fil, dict):
+        return fil.get(name)
+    return getattr(fil, name, None)
+
+
+def _first_filament(fil):
+    """Tek filament ya da liste → ilk filament (model veya dict)."""
+    if isinstance(fil, list):
+        return fil[0] if fil else None
+    return fil
+
+
 def _profile_key(s: SliceModel) -> str:
     """Slice parametrelerinden benzersiz bir profil anahtarı üretir."""
-    fil = s.filament
-    if isinstance(fil, list):
-        fil = fil[0] if fil else None
-    ftype = (fil.type if fil and fil.type else "unknown").upper()
+    fil = _first_filament(s.filament)
+    ftype = (_fil_get(fil, "type") or "unknown").upper()
     layer = round(s.layer_height_mm or 0.20, 2)
     infill = int(s.infill_pct or 15)
     return f"{ftype}_{layer}_{infill}pct"
@@ -221,12 +235,10 @@ def receive_slice_event(
     s = event.slice
     now = datetime.now(timezone.utc).isoformat()
 
-    # Filament bilgisini düzleştir
-    fil = s.filament
-    if isinstance(fil, list):
-        fil = fil[0] if fil else None
-    ftype   = fil.type    if fil else None
-    density = fil.density_g_cm3 if fil else None
+    # Filament bilgisini düzleştir (tek filament ya da AMS listesi olabilir)
+    fil = _first_filament(s.filament)
+    ftype   = _fil_get(fil, "type")
+    density = _fil_get(fil, "density_g_cm3")
 
     # Slice event'i kaydet
     cur = conn.execute("""
