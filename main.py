@@ -191,7 +191,7 @@ def _update_calibration(conn, profile_key: str, new_weight_ratio: Optional[float
 
 # ─── App ─────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="CAGO 3D Slice API", version="1.0.0")
+app = FastAPI(title="CAGO 3D Slice API", version="1.1.0")
 init_db()
 
 app.add_middleware(
@@ -485,7 +485,7 @@ def download_model(event_id: int, _=Depends(verify_key)):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "1.0.0"}
+    return {"status": "ok", "version": "1.1.0"}
 
 
 # ─── Admin paneli ─────────────────────────────────────────────────────────────
