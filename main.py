@@ -406,6 +406,76 @@ def get_calibration(profile_key: str, conn=Depends(get_db), _=Depends(verify_key
     return dict(row)
 
 
+# ─── Endpoint: köprü verisinden öğrenilmiş istatistikler ────────────────────
+# Site fiyat motoru (slicer.js quote()) ve AI asistanı (AIQuotePane) bu
+# baseline'ları kullanarak tahmin doğruluğunu artırır.
+
+@app.get("/v1/training")
+def training_stats(conn=Depends(get_db), _=Depends(verify_key)):
+    """Tüm köprü olaylarından profil bazlı + filament bazlı istatistikler.
+
+    Dönüş:
+      - totals: genel sayımlar
+      - by_profile: (filament, layer, infill) kombinasyonu bazında istatistik
+      - by_filament: sadece filament tipine göre baseline
+    """
+    # Profil bazlı (en spesifik birim — slicer.js'in profile_key formatıyla uyumlu)
+    profile_rows = conn.execute("""
+        SELECT
+            COALESCE(filament_type, 'UNKNOWN')                       AS filament_type,
+            COALESCE(ROUND(layer_height, 2), 0.20)                   AS layer_height,
+            CAST(COALESCE(infill_pct, 15) AS INTEGER)                AS infill_pct,
+            COUNT(*)                                                 AS samples,
+            ROUND(AVG(weight_g), 2)                                  AS mean_weight_g,
+            ROUND(MIN(weight_g), 2)                                  AS min_weight_g,
+            ROUND(MAX(weight_g), 2)                                  AS max_weight_g,
+            ROUND(AVG(time_min), 1)                                  AS mean_time_min,
+            ROUND(MIN(time_min), 1)                                  AS min_time_min,
+            ROUND(MAX(time_min), 1)                                  AS max_time_min
+        FROM slice_events
+        WHERE weight_g IS NOT NULL OR time_min IS NOT NULL
+        GROUP BY filament_type, ROUND(layer_height, 2), CAST(infill_pct AS INTEGER)
+        ORDER BY samples DESC
+    """).fetchall()
+
+    # Profile_key string'ini ekleyerek slicer.js ile uyumlu yap
+    by_profile = []
+    for r in profile_rows:
+        d = dict(r)
+        d["profile_key"] = f"{d['filament_type']}_{d['layer_height']}_{d['infill_pct']}pct"
+        by_profile.append(d)
+
+    # Filament tipi bazında (daha geniş, fallback için)
+    fil_rows = conn.execute("""
+        SELECT
+            COALESCE(filament_type, 'UNKNOWN')   AS filament_type,
+            COUNT(*)                              AS samples,
+            ROUND(AVG(weight_g), 2)              AS mean_weight_g,
+            ROUND(AVG(time_min), 1)              AS mean_time_min,
+            ROUND(AVG(filament_density), 3)      AS mean_density_g_cm3
+        FROM slice_events
+        WHERE weight_g IS NOT NULL
+        GROUP BY filament_type
+        ORDER BY samples DESC
+    """).fetchall()
+
+    # Genel
+    total_row = conn.execute("""
+        SELECT
+            COUNT(*)                     AS total_events,
+            COUNT(weight_g)              AS with_weight,
+            COUNT(time_min)              AS with_time,
+            COUNT(DISTINCT filament_type) AS distinct_filaments
+        FROM slice_events
+    """).fetchone()
+
+    return {
+        "totals":       dict(total_row),
+        "by_profile":   by_profile,
+        "by_filament":  [dict(r) for r in fil_rows],
+    }
+
+
 # ─── Endpoint: son slice olaylarını getir (admin paneli için) ─────────────────
 
 @app.get("/v1/slice-events")
