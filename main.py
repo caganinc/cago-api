@@ -90,8 +90,10 @@ class FilamentModel(BaseModel):
     length_used_mm: Optional[float] = None
 
 class SliceModel(BaseModel):
-    estimated_weight_g:      float
-    estimated_time_min:      float
+    # Opsiyonel: bazı .gcode/.3mf çıktılarında ağırlık veya süre parse edilemeyebilir.
+    # Eksikse olay yine kaydedilir; kalibrasyon o ölçümü atlar.
+    estimated_weight_g:      Optional[float] = None
+    estimated_time_min:      Optional[float] = None
     filament_length_mm:      Optional[float] = None
     layer_height_mm:         Optional[float] = None
     first_layer_height_mm:   Optional[float] = None
@@ -267,8 +269,9 @@ def receive_slice_event(
         site_w = event.site_estimate.get("weight_g")
         site_t = event.site_estimate.get("time_min")
 
-        w_ratio = (s.estimated_weight_g / site_w) if site_w and site_w > 0 else None
-        t_ratio = (s.estimated_time_min  / site_t) if site_t and site_t > 0 else None
+        # Bambu değeri (s.estimated_*) eksik gelmiş olabilir → oran hesabını koru
+        w_ratio = (s.estimated_weight_g / site_w) if (s.estimated_weight_g and site_w and site_w > 0) else None
+        t_ratio = (s.estimated_time_min  / site_t) if (s.estimated_time_min  and site_t and site_t > 0) else None
 
         conn.execute("""
             INSERT INTO calibration_samples
